@@ -21,8 +21,6 @@ This project performs correlation analysis on revenue data across multiple compa
 
 ---
 
----
-
 ## 🛠️ Installation
 
 ```bash
