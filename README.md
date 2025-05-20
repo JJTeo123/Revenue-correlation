@@ -21,10 +21,6 @@ This project performs correlation analysis on revenue data across multiple compa
 
 ---
 
-## 📊 Example Visualization
-
-![Heatmap](outputs/correlation_heatmap.png)
-
 ---
 
 ## 🛠️ Installation
