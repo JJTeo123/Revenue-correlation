@@ -56,55 +56,98 @@ def get_metric_data(ticker, metric_name):
         st.warning(f"Could not fetch data for {ticker}: {e}")
         return None
 
-# Generate quarter-end calendar
-def get_quarter_end_dates(start, end):
-    return pd.date_range(start=f"{start}-01-01", end=f"{end}-12-31", freq="Q")
+# Custom fiscal quarter label generator
+def get_custom_quarter_label(date):
+    month = date.month
+    year = date.year
+
+    if (month == 3 and date.day >= 2) or (month == 4 or month == 5) or (month == 6 and date.day == 1):
+        quarter = "Q1"
+    elif (month == 6 and date.day >= 2) or (month == 7 or month == 8) or (month == 9 and date.day == 1):
+        quarter = "Q2"
+    elif (month == 9 and date.day >= 2) or (month == 10 or month == 11) or (month == 12 and date.day == 1):
+        quarter = "Q3"
+    else:
+        quarter = "Q4"
+        # For dates in Jan or Feb, assign previous year
+        if month in [1, 2] or (month == 3 and date.day == 1):
+            year -= 1
+
+    return f"{year}-" + quarter
 
 # Run analysis
 if run_button and tickers:
     st.subheader(f"⏳ Fetching and aligning '{selected_metric_label}' data...")
 
-    calendar_dates = get_quarter_end_dates(start_year, end_year)
-    aligned_data = pd.DataFrame(index=calendar_dates)
+    all_series = []
 
     for ticker in tickers:
         data = get_metric_data(ticker, selected_metric)
         if data is not None:
-            aligned = data.reindex(calendar_dates, method='ffill')
-            aligned_data[ticker] = aligned
+            df = pd.DataFrame(data)
+            df["Quarter"] = df.index.to_series().apply(get_custom_quarter_label)
+            df = df.set_index("Quarter")
+            df = df.rename(columns={ticker: "Value"})
+            df["Ticker"] = ticker
+            all_series.append(df)
 
-    aligned_data = aligned_data.dropna(how='all')
+    if all_series:
+        combined = pd.concat(all_series)
+        pivot = combined.pivot_table(index=combined.index, columns="Ticker", values="Value", aggfunc="first")
+        quarter_data = pivot.sort_index()
 
-    if not aligned_data.empty:
-        st.subheader(f"📊 Aligned {selected_metric_label} Table")
-        st.dataframe(aligned_data.style.format("${:,.0f}"))
+        # Filter by selected year range
+        quarter_data = quarter_data[
+            quarter_data.index.to_series().apply(lambda x: start_year <= int(x[:4]) <= end_year)
+        ]
 
-        # 📈 Line chart
-        st.subheader(f"📈 {selected_metric_label} Trend Line Chart")
-        fig_trend, ax_trend = plt.subplots(figsize=(12, 6))
+        quarter_data = quarter_data.dropna(how="all")
 
-        plot_data = aligned_data.copy()
+        # Extract year and quarter number to sort properly
+        temp_df = quarter_data.copy()
+        temp_df["__year"] = temp_df.index.str[:4].astype(int)
+        temp_df["__qtr"] = temp_df.index.str[-1].astype(int)
 
-        if normalize_data:
-            plot_data = plot_data.divide(plot_data.max())
+        # Sort by year descending then quarter descending
+        temp_df = temp_df.sort_values(by=["__year", "__qtr"], ascending=[False, False])
 
-        plot_data.plot(ax=ax_trend, marker="o", linewidth=2)
-        ax_trend.set_title(
-            f"{selected_metric_label} Trend Over Time" +
-            (" (Normalized)" if normalize_data else "")
-        )
-        ax_trend.set_ylabel("Normalized Value" if normalize_data else f"{selected_metric_label} (USD)")
-        ax_trend.grid(True)
-        st.pyplot(fig_trend)
+        # Drop helper columns and restore index
+        quarter_data = temp_df.drop(columns=["__year", "__qtr"])
+        quarter_data.index.name = "Custom Fiscal Quarter"
 
-        # 🔗 Correlation heatmap
-        st.subheader(f"🔗 {selected_metric_label} Correlation Heatmap")
-        corr = aligned_data.corr()
-        fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
-        sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax_corr)
-        ax_corr.set_title(f"Correlation of Quarterly {selected_metric_label}")
-        st.pyplot(fig_corr)
+        if not quarter_data.empty:
+            st.subheader(f"📋 Aligned {selected_metric_label} Table")
+            st.dataframe(quarter_data.style.format("${:,.0f}"))
 
-        st.success("✅ Analysis Complete")
+            # 📈 Line chart
+            st.subheader(f"📈 {selected_metric_label} Trend Line Chart")
+            fig_trend, ax_trend = plt.subplots(figsize=(12, 6))
+
+            plot_data = quarter_data.copy().sort_index()  # Ensure chronological order in chart
+
+            if normalize_data:
+                plot_data = plot_data.divide(plot_data.max())
+
+            plot_data.plot(ax=ax_trend, marker="o", linewidth=2)
+            ax_trend.set_title(
+                f"{selected_metric_label} Trend Over Time" +
+                (" (Normalized)" if normalize_data else "")
+            )
+            ax_trend.set_ylabel("Normalized Value" if normalize_data else f"{selected_metric_label} (USD)")
+            ax_trend.set_xlabel("Fiscal Quarter")
+            ax_trend.grid(True)
+            st.pyplot(fig_trend)
+
+            # 🔗 Correlation heatmap
+            st.subheader(f"🔗 {selected_metric_label} Correlation Heatmap")
+            corr = quarter_data.corr()
+            fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
+            sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", ax=ax_corr)
+            ax_corr.set_title(f"Correlation of Quarterly {selected_metric_label}")
+            st.pyplot(fig_corr)
+
+            st.success("✅ Analysis Complete")
+        else:
+            st.warning("⚠️ No valid data found for the selected tickers and metric.")
     else:
-        st.warning("⚠️ No valid data found for the selected tickers and metric.")
+        st.warning("⚠️ No data retrieved for any tickers.")
