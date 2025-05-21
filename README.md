@@ -21,10 +21,12 @@ This project performs correlation analysis on revenue data across multiple compa
 
 ---
 
-## 🛠️ Installation
-
+## 📦 Requirements
 ```bash
-git clone https://github.com/yourusername/revenue-correlation.git
-cd revenue-correlation
 pip install -r requirements.txt
+```
 
+## 🚀 Running the Streamlit App
+```bash
+python -m streamlit run app.py
+```
